@@ -16,7 +16,7 @@ int port;
 
 int main(int argc, char *argv[])
 {
-  int fdclient; // descriptorul de socket
+  int fdServer; // descriptorul de socket
   struct sockaddr_in server;
 
   if (argc != 3)
@@ -29,8 +29,8 @@ int main(int argc, char *argv[])
   port = atoi(argv[2]);
 
   // creez socket
-  fdclient = socket(AF_INET, SOCK_STREAM, 0);
-  if (fdclient == -1)
+  fdServer = socket(AF_INET, SOCK_STREAM, 0);
+  if (fdServer == -1)
   {
     perror("[server]Eroare la socket().\n");
     return errno;
@@ -45,7 +45,7 @@ int main(int argc, char *argv[])
   server.sin_port = htons(port);
 
   // ma conectez la server
-  int myconnect = connect(fdclient, (struct sockaddr *)&server, sizeof(struct sockaddr));
+  int myconnect = connect(fdServer, (struct sockaddr *)&server, sizeof(struct sockaddr));
   if (myconnect == -1)
   {
     perror("[client]Eroare la connect().\n");
@@ -54,24 +54,31 @@ int main(int argc, char *argv[])
 
   int questionNumber = 0;
 
-  char msg[100];
-  bzero(msg, 100);
-  printf("[client]Introduceti un nume: ");
-  fflush(stdout);
-  read(0, msg, 100);
-
-  /* trimiterea mesajului la server */
-  if (write(fdclient, msg, 100) <= 0)
-  {
-    perror("[client]Eroare la write() spre server.\n");
-    return errno;
-  }
 
   while (1)
   {
     //while cate inrebari am atatea read() si write() am
 
 
+    char msgServer[100];
+    
+    if (read(fdServer, msgServer, 100) <= 0)
+    {
+      perror("[client]Eroare la read() spre server.\n");
+      return errno;
+    }
+    
+    printf("[client] Serverul: %s \n", msgServer);
+    fflush(stdout);
+    
+    char msg[100];
+    read(0, msg, 100);
+    /* trimiterea mesajului la server */
+    if (write(fdServer, msg, 100) <= 0)
+    {
+      perror("[client]Eroare la write() spre server.\n");
+      return errno;
+    }
 
 
     // char msg[100];
@@ -86,5 +93,5 @@ int main(int argc, char *argv[])
     //   return errno;
     // }
   }
-  close(fdclient);
+  close(fdServer);
 }

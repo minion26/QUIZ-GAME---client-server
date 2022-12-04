@@ -49,6 +49,9 @@ struct game
     int noQuestion;
 } game;
 
+void selectAnswer(int , char* , char* );
+void sendQuestion( int, char*);
+
 void play(void *thr)
 {
     clientThread *info = (clientThread *)thr;
@@ -66,37 +69,48 @@ void play(void *thr)
 
     for (int question = 1; question <= game.noQuestion; question++)
     {
-        // trimit intrebarea printr o functie
-        // primesc raspunsul
-        correctAnswer = "lalala";
+        // primesc intrebarea de la db
+        char* intrebare[100];
+        bzero(intrebare, 100);
+        sendQuestion(question, intrebare);
+        printf("[server] %s\n", intrebare);
+        
+        // primesc raspunsul de la db
+        char *rasp[100];
+        char *pct[100];
+        bzero(rasp, 100);
+        bzero(pct, 100);
+        selectAnswer(question, rasp, pct);
+        printf("[server] raspuns: %s, puncte:%s\n", rasp, pct);
+        
 
-        bzero(clientCommand, 100);
-        FD_ZERO(&actfds);
-        FD_SET(info->fdClient, &readfds);
+        // bzero(clientCommand, 100);
+        // FD_ZERO(&actfds);
+        // FD_SET(info->fdClient, &readfds);
 
-        tv.tv_sec = 15; // clientul are la dispozitie 15s sa raspunda la intrebare
-        tv.tv_usec = 0;
+        // tv.tv_sec = 30; // clientul are la dispozitie 30s sa raspunda la intrebare
+        // tv.tv_usec = 0;
 
-        int myselect = select(nfds + 1, &readfds, NULL, NULL, &tv);
-        if (myselect < 0)
-        {
-            printf("[thread - %d] eroare la select().\n", info->idThread);
-        }
+        // int myselect = select(nfds + 1, &readfds, NULL, NULL, &tv);
+        // if (myselect < 0)
+        // {
+        //     printf("[thread - %d] eroare la select().\n", info->idThread);
+        // }
 
-        // verificam daca clientul a raspuns
-        if (FD_ISSET(info->fdClient, &readfds))
-        {
-            char buffer[100];
-            int bytes;
+        // // verificam daca clientul a raspuns
+        // if (FD_ISSET(info->fdClient, &readfds))
+        // {
+        //     char buffer[100];
+        //     int bytes;
 
-            bytes = read(info->fdClient, clientAnswer, sizeof(buffer));
-            if (bytes < 0)
-            {
-               printf("[thread -%d] Eroare la read() de la client.\n", info->idThread);
-            }
+        //     bytes = read(info->fdClient, clientAnswer, sizeof(buffer));
+        //     if (bytes < 0)
+        //     {
+        //         printf("[thread -%d] Eroare la read() de la client.\n", info->idThread);
+        //     }
 
-            //trebuie sa verific daca clientul imi da raspunsul bun
-        }
+        //     // trebuie sa verific daca clientul imi da raspunsul bun
+        // }
     }
 }
 
@@ -105,24 +119,39 @@ void *threadFunction(void *thr)
     // struct clientThread *info;
     // info = ((struct clientThread*)thr);
     clientThread *info = (clientThread *)thr;
+    int socket = info->fdClient;
 
     if (info->idThread >= 2)
     {
         printf("[server] there are enaugh clients");
         fflush(stdout);
+        char cerere[100];
+        bzero(cerere, 100);
+        strcat(cerere, "There are enaugh clients, please wait for another game to start.");
+        int mywrite = write(socket, cerere, 100);
         return 0;
         pthread_detach(pthread_self());
     }
 
-    printf("[thread-%d] - Introduceti un username:...\n", info->idThread);
-    fflush(stdout);
+    // printf("[thread-%d] - Introduceti un username:...\n", info->idThread);
+    // fflush(stdout);
+
+    char cerere[100];
+    bzero(cerere, 100);
+    strcat(cerere, "Introduceti un username:");
+
+    int mywrite = write(socket, cerere, 100);
+    if (mywrite <= 0)
+    {
+        printf("[thread -%d] - eroare la write().", info->idThread);
+        perror("[server] eroare la write() de la client");
+    }
 
     struct sockaddr_in client = info->client;
-    int socket = info->fdClient;
-    char username[256];
-    bzero(username, 256);
+    char username[100];
+    bzero(username, 100);
 
-    int myread = read(socket, username, 256);
+    int myread = read(socket, username, 100);
     if (myread <= 0)
     {
         printf("[thread -%d] - eroare la read().", info->idThread);
@@ -134,7 +163,7 @@ void *threadFunction(void *thr)
     clients[info->idThread].points = 0; // cate pct are
     clients[info->idThread].exited = 0; // daca a iesit din joc
 
-    printf("Client %d with username: %s and thread id: %ld is connected\n", info->idThread, info->username, pthread_self());
+    printf("Client %d with username: %s and thread id: %ld is connected\n", info->idThread, username, pthread_self());
     fflush(stdout);
 
     play(thr);
@@ -153,12 +182,57 @@ static int callback(void *NotUsed, int argc, char **argv, char **azColName)
     return 0;
 }
 
-void selectAnswer()
+void selectAnswer(int i, char* raspuns, char* puncte)
 {
-    //iau din baza de date si raspunsul corect, si punctajul
+    // iau din baza de date si raspunsul corect, si punctajul
+    int rc = sqlite3_open("test.db", &db);
+
+    if (rc)
+    {
+        fprintf(stderr, "Can't open database: %s\n", sqlite3_errmsg(db));
+    }
+    else
+    {
+        fprintf(stderr, "Opened database successfully\n");
+    }
+
+    char inregistrare1[100];
+    char inregistrare2[100];
+    sprintf(inregistrare1, "SELECT ANSWER FROM QUIZ WHERE ID=%d", i);
+    sprintf(inregistrare2, "SELECT POINTS FROM QUIZ WHERE ID=%d", i);
+
+    sqlite3_stmt *stmt1;
+    sqlite3_stmt *stmt2;
+
+    rc = sqlite3_prepare_v2(db, inregistrare1, -1, &stmt1, NULL);
+
+    if (rc < 0)
+    {
+        printf("Error executing sql statement\n");
+        fflush(stdout);
+    }
+
+    rc = sqlite3_step(stmt1);
+    strcpy(raspuns, sqlite3_column_text(stmt1, 0));
+
+    rc = sqlite3_prepare_v2(db, inregistrare2, -1, &stmt2, NULL);
+
+    if (rc < 0)
+    {
+        printf("Error executing sql statement\n");
+        fflush(stdout);
+    }
+
+    rc = sqlite3_step(stmt2);
+    strcpy(puncte, sqlite3_column_text(stmt2, 0));
+
+    sqlite3_finalize(stmt1);
+    sqlite3_finalize(stmt2);
+    sqlite3_close(db);
+
 }
 
-void sendQuestion(struct thread info, int question)
+void sendQuestion( int i, char* intrebare)
 {
     int rc = sqlite3_open("test.db", &db);
 
@@ -171,24 +245,37 @@ void sendQuestion(struct thread info, int question)
         fprintf(stderr, "Opened database successfully\n");
     }
 
-    //casting int la char pierde din informatii si nu pot folosit (char)
-    //folosesc sprintf
+    // casting int la char pierde din informatii si nu pot folosit (char)
+    // folosesc sprintf
     char inregistrare[100];
-    sprintf(inregistrare, "SELECT QUESTION FROM QUIZ WHERE ID=%d", question);
+    sprintf(inregistrare, "SELECT QUESTION FROM QUIZ WHERE ID=%d", i);
 
     sqlite3_stmt *stmt;
-    
+
     rc = sqlite3_prepare_v2(db, inregistrare, -1, &stmt, NULL);
 
-    if(rc < 0)
+    if (rc < 0)
     {
         printf("Error executing sql statement\n");
         fflush(stdout);
     }
 
     rc = sqlite3_step(stmt);
-    //de continuat
+    // char* q;
+    // q = (char*)sqlite3_column_text(stmt, 0);
+    // char* backup = q;
+    // printf("[server] question is: %s", backup);
+    
 
+    strcpy(intrebare, sqlite3_column_text(stmt, 0));
+    //strcpy(backup, q);
+    //printf("[db] %s", q);
+    sqlite3_finalize(stmt);
+    sqlite3_close(db);
+
+    //return backup;
+
+    
 }
 
 void populateTable()
@@ -208,16 +295,16 @@ void populateTable()
 
     sql2 = "INSERT INTO QUIZ (ID,QUESTION,ANSWER,POINTS) "
            "VALUES (1, 'How many lives is a cat said to have?', '9', 10); "
-           "INSERT INTO QUESTIONS (ID,QUESTION,ANSWER,POINTS) "
+           "INSERT INTO QUIZ(ID,QUESTION,ANSWER,POINTS) "
            "VALUES (2, 'What is the currency of Italy?', 'Euro', 10); "
-           "INSERT INTO QUESTIONS (ID,QUESTION,ANSWER,POINTS) "
+           "INSERT INTO QUIZ (ID,QUESTION,ANSWER,POINTS) "
            "VALUES (3, 'Which element is said to keep bones strong?', 'Calcium', 10);";
 
     rc = sqlite3_exec(db, sql2, callback, 0, &zErrMsg);
 
     if (rc != SQLITE_OK)
     {
-        fprintf(stderr, "SQL error: %s\n", zErrMsg);
+        fprintf(stderr, "SQL error at populateTable(): %s\n", zErrMsg);
         fflush(stdout);
         sqlite3_free(zErrMsg);
     }
@@ -258,7 +345,7 @@ void createDataBase()
 
     if (rc != SQLITE_OK)
     {
-        fprintf(stderr, "SQL error: %s\n", zErrMsg);
+        fprintf(stderr, "SQL error at createDataBase(): %s\n", zErrMsg);
         fflush(stdout);
         sqlite3_free(zErrMsg);
     }
@@ -270,7 +357,6 @@ void createDataBase()
 
     populateTable();
     sqlite3_close(db);
-    
 }
 
 int main()
