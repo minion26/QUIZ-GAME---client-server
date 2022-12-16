@@ -1,8 +1,6 @@
-// TODO : nu afiseaza castigatorul !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 // TODO : de adaugat intrebari
-// CHECKED TODO : data raspunde rpd ai pct bonus
-// TODO : MAI MULTE JOCURI IN PARALEL
-// DACA NU RASPUNDE E DESCALIFICAT   
+// TODO : imi pune chestii aiurea in buffer
+// TODO : MAI MULTE JOCURI IN PARALEL  
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -17,10 +15,38 @@
 #include <pthread.h>
 #include <sqlite3.h>
 
+// #pragma SQLITE_TEMP_STORE=0;
+
+char *
+strnstr(const char *s, const char *find, size_t slen)
+{
+	char c, sc;
+	size_t len;
+
+	if ((c = *find++) != '\0') {
+		len = strlen(find);
+		do {
+			do {
+				if (slen-- < 1 || (sc = *s++) == '\0')
+					return (NULL);
+			} while (sc != c);
+			if (len > slen)
+				return (NULL);
+		} while (strncmp(s, find, len) != 0);
+		s--;
+	}
+	return ((char *)s);
+}
+
 pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t wlock = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t addlock = PTHREAD_MUTEX_INITIALIZER;
 
 #define PORT 2604
+#define MAX_PLAYERS 2
 extern int errno;
+
+bool closed = 0;
 
 sqlite3 *db; // pointer pentru baza de date
 
@@ -55,9 +81,13 @@ struct game
 
 void selectAnswer(int, char *, char *);
 void sendQuestion(int, char *, void *);
-void deleteDataBase();
+void deleteDataBase(void*);
 void addRowRanking(int, char *, int);
-void winner(void * client);
+void winner(void * , char *, char *);
+void deleteRanking(void *);
+void deletePlayers(void *);
+void createRanking();
+void createDataBase();
 
 void play(void *thr)
 {
@@ -99,7 +129,7 @@ void play(void *thr)
 
         char clientCommand[100], clientAnswer[100];
 
-        bzero(clientAnswer, 100);
+        //bzero(clientAnswer, 100);
         bzero(clientCommand, 100);
 
         FD_ZERO(&actfds);
@@ -126,8 +156,9 @@ void play(void *thr)
             {
                 // char buffer[100];
                 int bytes;
-                bzero(clientAnswer, 100);
+                bzero(clientAnswer, 100); 
                 bytes = read(info->fdClient, clientAnswer, 100);
+                
                 if (bytes == -1)
                 {
                     printf("[thread -%d] eroare la read().\n", info->idThread);
@@ -136,17 +167,18 @@ void play(void *thr)
                 clientAnswer[bytes] = NULL;
 
                 if (strstr(clientAnswer, "a : ") != NULL)
-                {
+                {   
+                    //printf("%s\n", clientAnswer);
                     char answer[50];
                     bzero(answer, 50);
                     strcpy(answer, clientAnswer + 4);
-                    answer[50] = '\0';
+                    //answer[50] = NULL;
 
                     printf("[server] clientul %d a raspuns: %s si raspunsul bun era: %s \n", info->idThread, answer, rasp);
                     fflush(stdout);
                     // trebuie sa verific daca clientul imi da raspunsul bun
 
-                    if (strstr(answer, rasp) != NULL)
+                    if (strnstr(answer, rasp, 1) != NULL)
                     {
                         clients[info->idThread].points = clients[info->idThread].points + puncte - (secPassed / 10);
                         printf("[server] clientul %d a raspuns corect si are %d puncte\n", info->idThread, clients[info->idThread].points);
@@ -194,13 +226,21 @@ void play(void *thr)
         }
     }
 
+    //tv = (struct timeval){ 30 }; //trying to reset the time for another game
+
     addRowRanking(info->idThread, clients[info->idThread].username, clients[info->idThread].points);
 
     sleep(10);
 
-    // winner(info);
+    char username[100];
+    char puncte[100];
+    winner(info, username, puncte);
 
-    // deleteDataBase();
+    deleteDataBase(info);
+    //deleteRanking(info);
+    
+    deletePlayers(info);
+    
 }
 
 void *threadFunction(void *thr)
@@ -211,7 +251,7 @@ void *threadFunction(void *thr)
     clientThread *info = (clientThread *)thr;
     int socket = info->fdClient;
 
-    if (game.numberPlayers > 2)
+    if (game.numberPlayers > MAX_PLAYERS)
     {
         printf("[DEBUG] there are enaugh clients");
         fflush(stdout);
@@ -282,8 +322,8 @@ void *threadFunction(void *thr)
         {
             printf("[DEBUG] asteptam clientii, numar clienti : %d\n", game.numberPlayers);
             fflush(stdout);
-            tv.tv_sec = 5;
-            tv.tv_usec = 0;
+            tv.tv_sec = 2;
+            tv.tv_usec = 500000;
             FD_ZERO(&readfds);
             FD_SET(info->fdClient, &readfds);
 
@@ -296,7 +336,7 @@ void *threadFunction(void *thr)
 
             if (FD_ISSET(info->fdClient, &readfds))
             {
-                // verificam daca s a scris ceva pe socket...poate "exit"
+                
                 char buffer[100];
                 int bytes;
                 char command[100];
@@ -308,22 +348,24 @@ void *threadFunction(void *thr)
                     fflush(stdout);
                 }
 
-                command[100] = '\0';
-                if (strcmp(command, "exit") == 0)
-                {
+                //command[100] = '\0';
+                // if (strcmp(command, "exit") == 0)
+                // {
 
-                    printf("[thread in while -%d] a iesit .\n", info->idThread);
-                    fflush(stdout);
-                    pthread_detach(pthread_self());
+                //     printf("[thread in while -%d] a iesit .\n", info->idThread);
+                //     fflush(stdout);
+                //     pthread_detach(pthread_self());
 
-                    close(info->fdClient);
-                    pthread_exit(NULL);
+                //     close(info->fdClient);
+                //     pthread_exit(NULL);
                     
-                }
+                // }
             }
 
-            if (game.numberPlayers == 2)
+            if (game.numberPlayers == MAX_PLAYERS)
             {
+                //createDataBase();
+                //createRanking();
                 play(thr);
                 break;
             }
@@ -466,11 +508,11 @@ void populateTable()
     }
 
     sql2 = "INSERT INTO QUIZ (ID,QUESTION,ANSWER,POINTS) "
-           "VALUES (1, 'How many lives is a cat said to have?    a.9 b.8 c.5', 'a', 10); "
+           "VALUES (1, 'How many lives is a cat said to have?  a.9 b.10 c.7', 'a', 10); "
            "INSERT INTO QUIZ(ID,QUESTION,ANSWER,POINTS) "
-           "VALUES (2, 'What is the currency of Italy?    a.lira b.euro c.ron', 'b', 10); "
+           "VALUES (2, 'What is the currency of Italy?  a.euro b.lira c.ron', 'a', 10); "
            "INSERT INTO QUIZ (ID,QUESTION,ANSWER,POINTS) "
-           "VALUES (3, 'Which element is said to keep bones strong?   a.food b.vitamins c.calcium', 'c', 10);";
+           "VALUES (3, 'Which element is said to keep bones strong? a.food b.calcium c.vitamins', 'b', 10);";
 
     rc = sqlite3_exec(db, sql2, callback, 0, &zErrMsg);
 
@@ -511,7 +553,7 @@ void createDataBase()
           "ID         INT              NOT NULL, "
           "QUESTION   VARCHAR(1000)    NOT NULL, "
           "ANSWER     VARCHAR(1000)    NOT NULL, "
-          "POINTS     INT              NOT NULL); ";
+          "POINTS     INT             NOT NULL); ";
 
     rc = sqlite3_exec(db, sql, callback, 0, &zErrMsg);
 
@@ -531,9 +573,9 @@ void createDataBase()
     sqlite3_close(db);
 }
 
-void deleteDataBase()
+void deleteDataBase(void *client)
 {
-
+    clientThread *info = (clientThread *)client;
     int rc = sqlite3_open("test.db", &db);
 
     if (rc)
@@ -559,42 +601,100 @@ void deleteDataBase()
         printf("Error executing sql statement\n");
         fflush(stdout);
     }
+    else{
+        printf("TABLE QUIZ DELETED");
+        fflush(stdout);
+    }
 
     rc = sqlite3_step(stmt);
 
     sqlite3_finalize(stmt);
+
+    deleteRanking(info);
+
     sqlite3_close(db);
 
-    int r = sqlite3_open("ranking.db", &db);
 
-    if (r)
+}
+
+void deleteRanking(void *client)
+{
+    // pthread_mutex_lock(&lock);
+    // clientThread *info = (clientThread *)client;
+    
+    // int r = sqlite3_open("ranking.db", &db);
+
+    // if (r != SQLITE_OK)
+    // {
+    //     fprintf(stderr, "Can't open database: %s\n", sqlite3_errmsg(db));
+    // }
+    // else
+    // {
+    //     fprintf(stderr, "Opened database successfully\n");
+    // }
+
+    // // casting int la char pierde din informatii si nu pot folosit (char)
+    // // folosesc sprintf
+    // char query[1000];
+    // sprintf(query, "DELETE FROM RANK WHERE THR=%d", info->idThread);
+
+    // sqlite3_stmt *st;
+
+    // r = sqlite3_prepare_v2(db, query, -1, &st, NULL);
+
+    // if (r < 0)
+    // {
+    //     printf("Error executing sql statement\n");
+    //     fflush(stdout);
+    // }
+    // else{
+    //     printf("ROW RANK DELETED");
+    //     fflush(stdout);
+    // }
+
+    // r = sqlite3_step(st);
+
+    // sqlite3_finalize(st);
+    // sqlite3_close(db);
+    // pthread_mutex_unlock(&lock);
+
+    pthread_mutex_lock(&lock);
+    for (int i = 0; i < MAX_PLAYERS; i++)
     {
-        fprintf(stderr, "Can't open database: %s\n", sqlite3_errmsg(db));
+        int r = sqlite3_open("ranking.db", &db);
+
+        if (r != SQLITE_OK)
+        {
+            fprintf(stderr, "Can't open database: %s\n", sqlite3_errmsg(db));
+        }
+        else
+        {
+            fprintf(stderr, "Opened database successfully\n");
+        }
+        char query[1000];
+        sprintf(query, "DELETE FROM RANK WHERE USERNAME=%s", clients[i].username);
+
+        sqlite3_stmt *st;
+
+        r = sqlite3_prepare_v2(db, query, -1, &st, NULL);
+
+        if (r < 0)
+        {
+            printf("Error executing sql statement\n");
+            fflush(stdout);
+        }
+        else{
+            printf("ROW RANK DELETED %s", clients[i].username);
+            fflush(stdout);
+        }
+
+        r = sqlite3_step(st);
+
+        sqlite3_finalize(st);
+        sqlite3_close(db);
     }
-    else
-    {
-        fprintf(stderr, "Opened database successfully\n");
-    }
+   pthread_mutex_unlock(&lock);
 
-    // casting int la char pierde din informatii si nu pot folosit (char)
-    // folosesc sprintf
-    char query[100];
-    sprintf(query, "DROP TABLE IF EXISTS RANK");
-
-    sqlite3_stmt *st;
-
-    r = sqlite3_prepare_v2(db, query, -1, &st, NULL);
-
-    if (r < 0)
-    {
-        printf("Error executing sql statement\n");
-        fflush(stdout);
-    }
-
-    r = sqlite3_step(st);
-
-    sqlite3_finalize(st);
-    sqlite3_close(db);
 }
 
 void createRanking()
@@ -615,7 +715,7 @@ void createRanking()
 
     char *sql;
     sql = "CREATE TABLE RANK("
-          "ID_THR        INT              NOT NULL, "
+          "THR        INT              NOT NULL, "
           "USERNAME   VARCHAR(1000)    NOT NULL, "
           "POINTS     INT              NOT NULL); ";
 
@@ -639,7 +739,7 @@ void createRanking()
 void addRowRanking(int id_thr, char *nume, int puncte)
 {
     // sqlite3 *db;
-    pthread_mutex_lock(&lock);
+    pthread_mutex_lock(&addlock);
     char *error_message = 0;
     int rc;
 
@@ -656,7 +756,7 @@ void addRowRanking(int id_thr, char *nume, int puncte)
 
     char sql[1024]; /* make room to hold sql string */
 
-    sprintf(sql, "INSERT INTO RANK(ID_THR,USERNAME,POINTS) VALUES (%d,'%s', %d);", id_thr, nume, puncte);
+    sprintf(sql, "INSERT INTO RANK(THR,USERNAME,POINTS) VALUES (%d,'%s', %d);", id_thr, nume, puncte);
 
     rc = sqlite3_exec(db, sql, callback, 0, &error_message);
 
@@ -672,62 +772,138 @@ void addRowRanking(int id_thr, char *nume, int puncte)
         fflush(stdout);
     }
 
-    pthread_mutex_unlock(&lock);
     sqlite3_close(db);
+    pthread_mutex_unlock(&addlock);
 }
 
-void winner(void *client)
+void winner(void *client, char *username, char *puncte)
 {
-    // pthread_mutex_lock(&lock);
+    pthread_mutex_lock(&wlock);
 
     clientThread *info = (clientThread *)client;
     int socket = info->fdClient;
+    int i = info->idThread;
+    int rc = sqlite3_open("ranking.db", &db);
 
-    char *error_message = 0;
-    int rc;
+   if (rc)
+   {
+      fprintf(stderr, "Can't open database: %s\n", sqlite3_errmsg(db));
+   }
+   else
+   {
+      fprintf(stderr, "Opened database successfully\n");
+   }
 
-    rc = sqlite3_open("ranking.db", &db);
+   char inregistrare1[100];
+   char inregistrare2[100];
+   char *inregistrare3;
+   char *inregistrare4;
 
-    if (rc != SQLITE_OK)
-    {
-        fprintf(stderr, "Cannot open database: %s\n", sqlite3_errmsg(db));
+   sprintf(inregistrare1, "SELECT USERNAME FROM RANK WHERE THR=%d", i);
+   sprintf(inregistrare2, "SELECT POINTS FROM RANK WHERE THR=%d", i);
+   inregistrare3 = "SELECT MAX(POINTS) FROM RANK";
+   inregistrare4 = "SELECT USERNAME FROM RANK WHERE POINTS = (SELECT MAX(POINTS) FROM RANK)";
+
+   sqlite3_stmt *stmt1;
+   sqlite3_stmt *stmt2;
+   sqlite3_stmt *stmt3;
+   sqlite3_stmt *stmt4;
+
+   rc = sqlite3_prepare_v2(db, inregistrare1, -1, &stmt1, NULL);
+
+   if (rc < 0)
+   {
+      printf("Error executing sql statement\n");
+      fflush(stdout);
+   }
+
+   rc = sqlite3_step(stmt1);
+   //strcpy(username, sqlite3_column_text(stmt1, 0));
+
+   rc = sqlite3_prepare_v2(db, inregistrare2, -1, &stmt2, NULL);
+
+   if (rc < 0)
+   {
+      printf("Error executing sql statement\n");
+      fflush(stdout);
+   }
+
+   rc = sqlite3_step(stmt2);
+   //strcpy(puncte, sqlite3_column_text(stmt1, 0));
+
+   rc = sqlite3_prepare_v2(db, inregistrare3, -1, &stmt3, NULL);
+
+   if (rc < 0)
+   {
+      printf("Error executing sql statement\n");
+      fflush(stdout);
+   }
+
+   rc = sqlite3_step(stmt3);
+   //strcpy(username, sqlite3_column_text(stmt3, 0));
+
+   rc = sqlite3_prepare_v2(db, inregistrare4, -1, &stmt4, NULL);
+
+   if (rc < 0)
+   {
+      printf("Error executing sql statement\n");
+      fflush(stdout);
+   }
+
+   rc = sqlite3_step(stmt4);
+   //strcpy(puncte, sqlite3_column_text(stmt4, 0));
+
+   char toSend[100];
+   sprintf(toSend, "CONGRATS! You got %s points \n The WINNER is : %s with %s points\n", sqlite3_column_text(stmt2, 0), sqlite3_column_text(stmt4, 0), sqlite3_column_text(stmt3, 0));
+
+   int mywrite = write(socket, toSend, 100);
+   if (mywrite < 0)
+   {
+        printf("[WINNER thread - %d] eroare la write().\n", info->idThread);
+   }
+
+   sqlite3_finalize(stmt1);
+   sqlite3_finalize(stmt2);
+   sqlite3_finalize(stmt3);
+   sqlite3_finalize(stmt4);
+   sqlite3_close(db);
+
+    pthread_mutex_unlock(&wlock);
+
+}
+
+void deletePlayers(void *client)
+{
+
+    //inchid conexiunea cu clientii
+    clientThread *info = (clientThread *)client;
+    int socket = info->fdClient;
+    // To end connection,press any key..
+    char buffer[100];
+    bzero(buffer, 100);
+    strcpy(buffer, "To end connection,press enter key...");
+    buffer[100]=NULL;
+
+    if (write(socket, buffer, 100)<= -1){
+        perror("eroare la write() cand timpul a expirat");
+
     }
-    else
-    {
-        fprintf(stderr, "Opened database successfully\n");
-    }
 
-    char *sql;
+    id = 0;
+    game.numberPlayers = 0;
 
-    sprintf(sql,"SELECT POINTS FROM RANK WHERE USERNAME=%s", info->username);
-    
-    sqlite3_stmt *stmt;
+    pthread_detach(pthread_self());
+    close(info->fdClient);
+    pthread_exit(NULL);
+    //exit(0);
+    //deleteRanking();
 
-    rc = sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
-
-    if (rc < 0)
-    {
-        printf("Error executing sql statement\n");
-        fflush(stdout);
-    }
-
-    rc = sqlite3_step(stmt);
-
-    char *punctaj;
-    strcpy(punctaj, sqlite3_column_text(stmt, 0));
-
-    int mywrite = write(socket, punctaj, 100);
-    if (mywrite < 0)
-    {
-        printf("[thread - %d] eroare la write().\n", info->idThread);
-    }
-
-    sqlite3_finalize(stmt);
-
-    // pthread_mutex_unlock(&lock);
-    sqlite3_close(db);
-
-
+    // if (remove("ranking.db") == 0) {
+    //     printf("The file is deleted successfully.");
+    //     exit(0);
+    // } else {
+    // printf("The file is not deleted.");
+    // } 
 }
 
 int main()
@@ -799,8 +975,7 @@ int main()
         }
 
         clients[thread_arg->idThread].socketDescriptor = thread_arg->fdClient;
-        // game.numberPlayers = 0;
-        //  game.numberPlayers++;
+
         game.noQuestion = 3;
 
         tid = pthread_create(&tid, NULL, &threadFunction, thread_arg);
@@ -810,5 +985,10 @@ int main()
             // free(thread_arg);
             return errno;
         }
+        
     }
+
+    //remove("ranking.db");
+    close(fdserver);
+    return 0;
 }
