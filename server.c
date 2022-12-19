@@ -56,6 +56,7 @@ struct game
 {
     int numberPlayers;
     int noQuestion;
+    int activePlayers;
 } game;
 
 char* strnstr(const char *s, const char *find, size_t slen)
@@ -189,6 +190,16 @@ void play(void *thr)
                         close(info->fdClient);
                         pthread_exit(NULL);
                     }
+                    else{
+                        char msg[100];
+                        bzero(msg, 100);
+                        strcpy(msg, "incorrect input..please try again");
+                        int mywrite = write(info->fdClient, msg, 100);
+                        if ( mywrite < 0)
+                        {
+                            perror("eroare la write()");
+                        }
+                    }
                 }
             }
             else
@@ -243,6 +254,7 @@ void *threadFunction(void *thr)
     {
         printf("[DEBUG] there are enaugh clients");
         fflush(stdout);
+        game.numberPlayers--;
         char cerere[100];
         bzero(cerere, 100);
         strcat(cerere, "There are enaugh clients, please wait for another game to start.");
@@ -280,6 +292,7 @@ void *threadFunction(void *thr)
     {
         printf("[thread -%d] a iesit .\n", info->idThread);
         fflush(stdout);
+        game.numberPlayers--;
         pthread_detach(pthread_self());
 
         close(info->fdClient);
@@ -288,7 +301,7 @@ void *threadFunction(void *thr)
 
     if (strstr(username, "start : ") != NULL)
     {
-        game.numberPlayers++;
+        game.activePlayers++;
 
         char name[100];
         bzero(name, 100);
@@ -308,7 +321,7 @@ void *threadFunction(void *thr)
         // astept sa fie destui clienti
         while (1)
         {
-            printf("[DEBUG] asteptam clientii, numar clienti : %d\n", game.numberPlayers);
+            printf("[DEBUG] asteptam clientii, numar clienti : %d\n", game.activePlayers);
             fflush(stdout);
             tv.tv_sec = 2;
             tv.tv_usec = 500000;
@@ -337,7 +350,7 @@ void *threadFunction(void *thr)
                 }
             }
 
-            if (game.numberPlayers == MAX_PLAYERS)
+            if (game.activePlayers == MAX_PLAYERS)
             {
                 // createDataBase();
                 // createRanking();
@@ -713,6 +726,7 @@ void addRowRanking(int id_thr, char *nume, int puncte)
 
 void winner(void *client, char *username, char *puncte)
 {
+    sleep(7);
     pthread_mutex_lock(&wlock);
 
     clientThread *info = (clientThread *)client;
@@ -879,7 +893,7 @@ int main()
     }
 
     // pentru fiecare client fac thread
-
+    game.numberPlayers=0;
     while (1)
     {
         pthread_t tid; // id thread
@@ -902,6 +916,7 @@ int main()
         clients[thread_arg->idThread].socketDescriptor = thread_arg->fdClient;
 
         game.noQuestion = 8;
+        game.numberPlayers++;
 
         tid = pthread_create(&tid, NULL, &threadFunction, thread_arg);
         if (tid < 0)

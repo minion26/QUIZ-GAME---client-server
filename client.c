@@ -54,44 +54,30 @@ int main(int argc, char *argv[])
 
   int questionNumber = 0;
 
-
   while (1)
   {
-    //while cate inrebari am atatea read() si write() am
-
-
+    // while cate inrebari am atatea read() si write() am
     char msgServer[100];
-    
+
     if (read(fdServer, msgServer, 100) <= 0)
     {
       perror("[client]Eroare la read() spre server.\n");
       return errno;
     }
-    
-    printf("[client] Serverul: %s \n", msgServer);
+
+    printf("Server: %s \n", msgServer);
     fflush(stdout);
-    
+
     char msg[100];
-    read(0, msg, 100);
+    size_t len = read(0, msg, 100);
+    msg[len] = NULL;
     /* trimiterea mesajului la server */
     if (write(fdServer, msg, 100) <= 0)
     {
       perror("[client]Eroare la write() spre server.\n");
       return errno;
     }
-
-
-    // char msg[100];
-    // bzero(msg, 100);
-    // printf("[client] Scrieti ceva: ");
-    // fflush(stdout);
-    // read(0, msg2, 100);
-
-    // if (write(fdclient, msg, 100) <= 0)
-    // {
-    //   perror("[client]Eroare la write() spre server.\n");
-    //   return errno;
-    // }
   }
+
   close(fdServer);
 }
