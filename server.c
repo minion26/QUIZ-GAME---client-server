@@ -1,5 +1,4 @@
-// TODO : de adaugat intrebari
-// TODO : MAI MULTE JOCURI IN PARALEL  :(
+
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -13,9 +12,7 @@
 #include <stdbool.h>
 #include <pthread.h>
 #include <sqlite3.h>
-
-// #pragma SQLITE_TEMP_STORE=0;
-
+#include <signal.h>
 
 pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t wlock = PTHREAD_MUTEX_INITIALIZER;
@@ -23,7 +20,10 @@ pthread_mutex_t addlock = PTHREAD_MUTEX_INITIALIZER;
 
 #define PORT 2604
 #define MAX_PLAYERS 2
+
 extern int errno;
+
+int sleepingTime = 10;
 
 bool closed = 0;
 
@@ -59,7 +59,7 @@ struct game
     int activePlayers;
 } game;
 
-char* strnstr(const char *s, const char *find, size_t slen)
+char *strnstr(const char *s, const char *find, size_t slen)
 {
     char c, sc;
     size_t len;
@@ -81,6 +81,8 @@ char* strnstr(const char *s, const char *find, size_t slen)
     }
     return ((char *)s);
 }
+
+
 void selectAnswer(int, char *, char *);
 void sendQuestion(int, char *, void *);
 void deleteDataBase(void *);
@@ -190,16 +192,6 @@ void play(void *thr)
                         close(info->fdClient);
                         pthread_exit(NULL);
                     }
-                    else{
-                        char msg[100];
-                        bzero(msg, 100);
-                        strcpy(msg, "incorrect input..please try again");
-                        int mywrite = write(info->fdClient, msg, 100);
-                        if ( mywrite < 0)
-                        {
-                            perror("eroare la write()");
-                        }
-                    }
                 }
             }
             else
@@ -231,7 +223,7 @@ void play(void *thr)
 
     addRowRanking(info->idThread, clients[info->idThread].username, clients[info->idThread].points);
 
-    sleep(5);
+    sleep(sleepingTime);
 
     char username[100];
     char puncte[100];
@@ -249,6 +241,7 @@ void *threadFunction(void *thr)
 
     clientThread *info = (clientThread *)thr;
     int socket = info->fdClient;
+
 
     if (game.numberPlayers > MAX_PLAYERS)
     {
@@ -354,6 +347,11 @@ void *threadFunction(void *thr)
             {
                 // createDataBase();
                 // createRanking();
+                if (MAX_PLAYERS >= 3)
+                {
+                    sleepingTime = 30;
+                }
+
                 play(thr);
                 break;
             }
@@ -602,7 +600,7 @@ void deleteDataBase(void *client)
 
 void deleteRanking(void *client)
 {
-    sleep(5);
+    sleep(sleepingTime);
 
     pthread_mutex_lock(&lock);
     clientThread *info = (clientThread *)client;
@@ -726,7 +724,7 @@ void addRowRanking(int id_thr, char *nume, int puncte)
 
 void winner(void *client, char *username, char *puncte)
 {
-    sleep(7);
+    sleep(sleepingTime);
     pthread_mutex_lock(&wlock);
 
     clientThread *info = (clientThread *)client;
@@ -848,7 +846,7 @@ void deletePlayers(void *client)
 
 int main()
 {
-
+    
     createDataBase();
     createRanking();
     struct sockaddr_in server;
@@ -893,7 +891,7 @@ int main()
     }
 
     // pentru fiecare client fac thread
-    game.numberPlayers=0;
+    game.numberPlayers = 0;
     while (1)
     {
         pthread_t tid; // id thread

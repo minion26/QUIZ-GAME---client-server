@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <netdb.h>
 #include <string.h>
+#include <signal.h>
 
 extern int errno;
 
@@ -16,6 +17,8 @@ int port;
 
 int main(int argc, char *argv[])
 {
+  //signal(SIGINT,SIG_IGN);
+
   int fdServer; // descriptorul de socket
   struct sockaddr_in server;
 
